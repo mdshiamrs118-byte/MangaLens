@@ -48,12 +48,16 @@ dependencies {
     implementation("androidx.activity:activity-ktx:1.9.2")
     implementation("androidx.exifinterface:exifinterface:1.3.7")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.6")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
 
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
 
     // OCR (Korean model is bundled in the APK, no download needed)
     implementation("com.google.mlkit:text-recognition-korean:16.0.1")
+    implementation("com.google.mlkit:text-recognition:16.0.1") // Latin script: Spanish, French, ...
+    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
+    implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
     // Offline translation (language model downloaded on demand by ML Kit)
     implementation("com.google.mlkit:translate:17.0.3")
     // Runs the OPUS-MT and NLLB models

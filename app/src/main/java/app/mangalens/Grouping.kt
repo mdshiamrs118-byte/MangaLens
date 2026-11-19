@@ -26,13 +26,36 @@ object Grouping {
 
     fun hasHangul(s: String): Boolean = s.any { isHangul(it) }
 
+    private fun isKana(c: Char) = c in '\u3040'..'\u30FF'
+    private fun isHan(c: Char) = c in '\u4E00'..'\u9FFF' || c in '\u3400'..'\u4DBF'
+
+    /** Text worth translating for this script; drops numbers, symbols and watermark web addresses. */
+    fun hasScript(script: Script, s: String): Boolean = when (script) {
+        Script.KOREAN -> hasHangul(s)
+        Script.JAPANESE -> s.any { isKana(it) || isHan(it) }
+        Script.CHINESE -> s.any { isHan(it) }
+        Script.LATIN -> {
+            val lower = s.lowercase()
+            val webAddress = lower.contains("www.") || lower.contains(".com") || lower.contains(".net") || lower.contains("http")
+            !webAddress && !looksEnglish(lower) && s.count { it.isLetter() } >= 2
+        }
+    }
+
+    private val englishWords = setOf(
+        "the", "and", "you", "your", "read", "free", "online", "with", "for", "our", "this", "that", "join", "click",
+    )
+
+    /** Text that is already English is usually a site watermark ("Read manga online for free"), not dialogue. */
+    private fun looksEnglish(lower: String): Boolean =
+        lower.split(Regex("[^a-z]+")).filter { it in englishWords }.toSet().size >= 2
+
     private val spaces = Regex("\\s+")
 
     /**
      * OCR returns text in small blocks; translating them one by one breaks sentences.
      * Blocks that sit close together (relative to their line height) are merged into one bubble.
      */
-    fun group(blocks: List<OcrBlock>): List<Bubble> {
+    fun group(blocks: List<OcrBlock>, script: Script = Script.KOREAN): List<Bubble> {
         val usable = blocks.filter { it.text.isNotBlank() && it.box.w > 0 && it.box.h > 0 }
         val n = usable.size
         if (n == 0) return emptyList()
@@ -66,7 +89,7 @@ object Grouping {
         for (members in clusters.values) {
             val ordered = members.sortedWith(compareBy({ it.box.t }, { it.box.l }))
             val text = ordered.joinToString(" ") { it.text.replace(spaces, " ").trim() }.trim()
-            if (!hasHangul(text)) continue // skip sound-effect noise, numbers, watermarks
+            if (!hasScript(script, text)) continue // skip sound-effect noise, numbers, watermarks
             var box = ordered[0].box
             for (m in ordered) box = box.union(m.box)
             bubbles.add(Bubble(text, box))

@@ -3,8 +3,6 @@ package app.mangalens
 import android.content.ContentValues
 import android.content.Intent
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
-import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -13,50 +11,51 @@ import android.provider.MediaStore
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.FileProvider
-import androidx.exifinterface.media.ExifInterface
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: Prefs
-    private lateinit var pages: LinearLayout
+    private lateinit var recycler: RecyclerView
+    private lateinit var adapter: StripAdapter
     private lateinit var status: TextView
     private lateinit var engineLabel: TextView
+    private lateinit var langButton: Button
     private lateinit var progress: ProgressBar
     private lateinit var translateBtn: Button
     private lateinit var saveBtn: Button
 
     private val ocr by lazy { Ocr() }
+    private val loader = RegionLoader()
 
-    private var original: Bitmap? = null
-    private var translated: Bitmap? = null
-    private var showingTranslated = false
+    private var pages: List<Page> = emptyList()
     private var translateJob: Job? = null
     private var cameraUri: Uri? = null
-    private val chunkCopies = ArrayList<Bitmap>()
 
-    private val pickImage = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        if (uri != null) loadImage(uri)
+    private val pickImages = registerForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
+        if (uris.isNotEmpty()) loadUris(uris)
     }
     private val takePicture = registerForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val uri = cameraUri
-        if (ok && uri != null) loadImage(uri)
+        if (ok && uri != null) loadUris(listOf(uri))
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -70,9 +69,12 @@ class MainActivity : AppCompatActivity() {
 
         val topRow = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         topRow.addView(button("Camera") { launchCamera() })
-        topRow.addView(button("Gallery") { pickImage.launch("image/*") })
+        topRow.addView(button("Gallery") { pickImages.launch("image/*") })
         topRow.addView(button("Translators") { openModels() })
         root.addView(topRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        langButton = Button(this).apply { setOnClickListener { chooseLanguage() } }
+        root.addView(langButton, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         engineLabel = TextView(this).apply {
             setPadding(dp(4), dp(6), dp(4), dp(6))
@@ -80,10 +82,10 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(engineLabel)
 
-        pages = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
-        val scroll = ScrollView(this)
-        scroll.addView(pages, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-        root.addView(scroll, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        recycler = RecyclerView(this).apply { layoutManager = LinearLayoutManager(this@MainActivity) }
+        adapter = StripAdapter(lifecycleScope, loader, recycler) { toggle() }
+        recycler.adapter = adapter
+        root.addView(recycler, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         progress = ProgressBar(this).apply {
             isIndeterminate = true
@@ -92,7 +94,7 @@ class MainActivity : AppCompatActivity() {
         root.addView(progress, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         status = TextView(this).apply {
-            text = "Pick a photo or take one, then tap Translate."
+            text = "Pick one or more images (Gallery), or take a photo. Choose the text language first."
             setPadding(dp(4), dp(4), dp(4), dp(4))
         }
         root.addView(status)
@@ -102,23 +104,25 @@ class MainActivity : AppCompatActivity() {
             if (translateJob?.isActive == true) translateJob?.cancel() else runTranslate()
         }
         translateBtn.isEnabled = false
-        saveBtn = button("Save") { save() }
+        saveBtn = button("Save") { saveAll() }
         saveBtn.isEnabled = false
         bottomRow.addView(translateBtn)
         bottomRow.addView(saveBtn)
         root.addView(bottomRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
 
         setContentView(root)
+        refreshLabels()
     }
 
     override fun onResume() {
         super.onResume()
-        engineLabel.text = "Translator: ${Catalog.byId(prefs.engineId).title}  (tap to change)"
+        refreshLabels()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         ocr.close()
+        loader.close()
     }
 
     // ---- UI helpers -------------------------------------------------------------------------
@@ -133,54 +137,48 @@ class MainActivity : AppCompatActivity() {
         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
     }
 
+    private fun lang(): Lang = Langs.byCode(prefs.sourceLang)
+
+    private fun refreshLabels() {
+        val l = lang()
+        langButton.text = "Text language: ${l.name} (tap to change)"
+        engineLabel.text = "Translator: ${Catalog.byKey(prefs.engineKey, l).title}  (tap to change)"
+    }
+
     private fun openModels() {
         startActivity(Intent(this, ModelsActivity::class.java))
     }
 
+    private fun chooseLanguage() {
+        val names = Langs.all.map { it.name }.toTypedArray()
+        val current = Langs.all.indexOfFirst { it.code == prefs.sourceLang }.coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("Language of the text in the manga")
+            .setSingleChoiceItems(names, current) { dialog, which ->
+                prefs.sourceLang = Langs.all[which].code
+                refreshLabels()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun anyTranslated(): Boolean = pages.any { it.translated != null }
+
     private fun setBusy(busy: Boolean) {
         progress.visibility = if (busy) View.VISIBLE else View.GONE
         translateBtn.text = if (busy) "Cancel" else "Translate"
-        saveBtn.isEnabled = !busy && translated != null
-    }
-
-    /**
-     * Shows a bitmap as a stack of slices. Very tall pages exceed the GPU texture size limit
-     * when put into a single ImageView, so each slice is at most 2048 px tall.
-     */
-    private fun show(bmp: Bitmap) {
-        pages.removeAllViews()
-        for (c in chunkCopies) c.recycle()
-        chunkCopies.clear()
-
-        val sliceH = 2048
-        var y = 0
-        while (y < bmp.height) {
-            val h = minOf(sliceH, bmp.height - y)
-            val part = if (y == 0 && h == bmp.height) {
-                bmp
-            } else {
-                Bitmap.createBitmap(bmp, 0, y, bmp.width, h).also { chunkCopies.add(it) }
-            }
-            val iv = ImageView(this).apply {
-                setImageBitmap(part)
-                adjustViewBounds = true
-                layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-                setOnClickListener { toggle() }
-            }
-            pages.addView(iv)
-            y += h
-        }
+        saveBtn.isEnabled = !busy && anyTranslated()
     }
 
     private fun toggle() {
-        val t = translated ?: return
-        val o = original ?: return
-        showingTranslated = !showingTranslated
-        show(if (showingTranslated) t else o)
-        status.text = if (showingTranslated) {
-            "Showing the translation. Tap the image to see the original."
+        if (!anyTranslated()) return
+        adapter.showTranslated = !adapter.showTranslated
+        adapter.refreshAll()
+        status.text = if (adapter.showTranslated) {
+            "Showing the translation. Tap the pages to see the originals."
         } else {
-            "Showing the original. Tap the image to see the translation."
+            "Showing the originals. Tap the pages to see the translation."
         }
     }
 
@@ -198,92 +196,96 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadImage(uri: Uri) {
+    private fun loadUris(uris: List<Uri>) {
         translateJob?.cancel()
         lifecycleScope.launch {
             try {
-                status.text = "Loading image…"
-                val bmp = withContext(Dispatchers.IO) { decode(uri) }
-                original = bmp
-                translated = null
-                showingTranslated = false
-                show(bmp)
-                translateBtn.isEnabled = true
-                saveBtn.isEnabled = false
-                status.text = "Image loaded. Tap Translate."
+                progress.visibility = View.VISIBLE
+                pages = emptyList()
+                adapter.showTranslated = false
+                adapter.setPages(emptyList())
+                loader.clear()
+
+                val loaded = PageIO.importUris(applicationContext, uris) { i, n ->
+                    runOnUiThread { status.text = "Loading images… ${i + 1}/$n" }
+                }
+                pages = loaded
+                adapter.setPages(loaded)
+                translateBtn.isEnabled = loaded.isNotEmpty()
+                status.text = if (loaded.isEmpty()) {
+                    "Could not read those images."
+                } else {
+                    "${loaded.size} image(s) loaded in name order. Tap Translate."
+                }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Throwable) {
-                status.text = "Could not open the image: ${e.message ?: e.javaClass.simpleName}"
+                status.text = "Could not open the images: ${e.message ?: e.javaClass.simpleName}"
+            } finally {
+                setBusy(false)
             }
         }
-    }
-
-    /** Decodes with a sample size so the page stays within about 16 megapixels and 3000 px width. */
-    private fun decode(uri: Uri): Bitmap {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it, null, bounds) }
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) error("Unsupported image")
-
-        var sample = 1
-        while ((bounds.outWidth.toLong() / sample) * (bounds.outHeight.toLong() / sample) > 16_000_000L ||
-            bounds.outWidth / sample > 3000
-        ) {
-            sample *= 2
-        }
-        val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-        var bmp = contentResolver.openInputStream(uri)!!.use { BitmapFactory.decodeStream(it, null, opts) }
-            ?: error("Could not decode the image")
-
-        val orientation = try {
-            contentResolver.openInputStream(uri)!!.use {
-                ExifInterface(it).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)
-            }
-        } catch (e: Exception) {
-            ExifInterface.ORIENTATION_NORMAL
-        }
-        val degrees = when (orientation) {
-            ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-            ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-            ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-            else -> 0f
-        }
-        if (degrees != 0f) {
-            val m = Matrix().apply { postRotate(degrees) }
-            bmp = Bitmap.createBitmap(bmp, 0, 0, bmp.width, bmp.height, m, true)
-        }
-        return bmp
     }
 
     // ---- Translate --------------------------------------------------------------------------
 
     private fun runTranslate() {
-        val src = original ?: run {
+        if (pages.isEmpty()) {
             toast("Pick or take a photo first.")
             return
         }
-        val info = Catalog.byId(prefs.engineId)
+        val l = lang()
+        val info = Catalog.byKey(prefs.engineKey, l)
+        val stamp = System.currentTimeMillis()
         setBusy(true)
         translateJob = lifecycleScope.launch {
             try {
-                status.text = "Reading text…"
-                val blocks = ocr.recognize(src) { status.text = it }
-                val bubbles = Grouping.group(blocks)
-                if (bubbles.isEmpty()) {
-                    status.text = "No Korean text found on this image."
-                    return@launch
-                }
-
                 status.text = "Loading ${info.title}…"
-                val translator = Engines.obtain(applicationContext, info)
-                val results = translator.translate(bubbles.map { it.text }) { done, total ->
-                    runOnUiThread { status.text = "Translating ${minOf(done + 1, total)}/$total…" }
-                }
+                val translator = Engines.obtain(applicationContext, info, l)
 
-                status.text = "Drawing the translation…"
-                val out = withContext(Dispatchers.Default) { OverlayRenderer.render(src, bubbles, results) }
-                translated = out
-                showingTranslated = true
-                show(out)
-                status.text = "Done: ${bubbles.size} text boxes. Tap the image to compare with the original."
+                var boxes = 0
+                var pagesWithText = 0
+                for ((i, page) in pages.withIndex()) {
+                    val label = "Page ${i + 1}/${pages.size}"
+                    status.text = "$label: reading text…"
+                    val bmp = withContext(Dispatchers.IO) { PageIO.decodeForOcr(page.file) } ?: continue
+                    try {
+                        val blocks = ocr.recognize(bmp, l.script) { status.text = "$label: $it" }
+                        val bubbles = Grouping.group(blocks, l.script)
+                        if (bubbles.isEmpty()) continue
+
+                        val results = translator.translate(bubbles.map { it.text }) { done, total ->
+                            runOnUiThread { status.text = "$label: translating ${minOf(done + 1, total)}/$total…" }
+                        }
+
+                        status.text = "$label: drawing…"
+                        val out = withContext(Dispatchers.Default) { OverlayRenderer.render(bmp, bubbles, results) }
+                        val target = File(PageIO.translatedDir(applicationContext), "t${stamp}_$i.jpg")
+                        withContext(Dispatchers.IO) {
+                            target.parentFile?.mkdirs()
+                            FileOutputStream(target).use { out.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+                        }
+                        out.recycle()
+
+                        page.translated?.delete()
+                        page.translated = target
+                        boxes += bubbles.size
+                        pagesWithText++
+                        if (!adapter.showTranslated) {
+                            adapter.showTranslated = true
+                            adapter.refreshAll()
+                        } else {
+                            adapter.pageChanged(i)
+                        }
+                    } finally {
+                        bmp.recycle()
+                    }
+                }
+                status.text = if (pagesWithText == 0) {
+                    "No ${l.name} text found. Check the text language."
+                } else {
+                    "Done: $boxes text boxes on $pagesWithText page(s). Tap the pages to compare with the originals."
+                }
             } catch (e: CancellationException) {
                 status.text = "Cancelled."
                 throw e
@@ -297,32 +299,39 @@ class MainActivity : AppCompatActivity() {
 
     // ---- Save -------------------------------------------------------------------------------
 
-    private fun save() {
-        val bmp = translated ?: return
+    private fun saveAll() {
+        if (!anyTranslated()) return
         saveBtn.isEnabled = false
+        val snapshot = pages.toList()
         lifecycleScope.launch {
             val msg = withContext(Dispatchers.IO) {
-                val name = "MangaLens_${System.currentTimeMillis()}.png"
-                try {
-                    if (Build.VERSION.SDK_INT >= 29) {
-                        val values = ContentValues().apply {
-                            put(MediaStore.Images.Media.DISPLAY_NAME, name)
-                            put(MediaStore.Images.Media.MIME_TYPE, "image/png")
-                            put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/MangaLens")
+                val stamp = System.currentTimeMillis()
+                var saved = 0
+                var error: String? = null
+                for ((i, page) in snapshot.withIndex()) {
+                    val src = page.translated ?: continue
+                    val name = "MangaLens_${stamp}_" + (i + 1).toString().padStart(3, '0') + ".jpg"
+                    try {
+                        if (Build.VERSION.SDK_INT >= 29) {
+                            val values = ContentValues().apply {
+                                put(MediaStore.Images.Media.DISPLAY_NAME, name)
+                                put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg")
+                                put(MediaStore.Images.Media.RELATIVE_PATH, "Pictures/MangaLens")
+                            }
+                            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                                ?: error("Could not create the file")
+                            val out = contentResolver.openOutputStream(uri) ?: error("Could not open the file")
+                            out.use { o -> FileInputStream(src).use { it.copyTo(o) } }
+                        } else {
+                            val dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
+                            src.copyTo(File(dir, name), overwrite = true)
                         }
-                        val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                            ?: error("Could not create the file")
-                        contentResolver.openOutputStream(uri)!!.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        "Saved to Pictures/MangaLens"
-                    } else {
-                        val dir = getExternalFilesDir(Environment.DIRECTORY_PICTURES) ?: filesDir
-                        val f = File(dir, name)
-                        FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-                        "Saved to ${f.absolutePath}"
+                        saved++
+                    } catch (e: Exception) {
+                        error = e.message ?: e.javaClass.simpleName
                     }
-                } catch (e: Exception) {
-                    "Save failed: ${e.message}"
                 }
+                if (error == null) "Saved $saved page(s) to Pictures/MangaLens" else "Saved $saved page(s). Error: $error"
             }
             toast(msg)
             saveBtn.isEnabled = true

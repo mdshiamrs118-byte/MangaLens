@@ -1,17 +1,18 @@
 # MangaLens
 
-Android app that reads Korean text in manga / webtoon photos, translates it to English and draws the
-translation over the original text. Built for Android 10 (targetSdk 29, minSdk 24), runs on newer versions too.
+Android app that reads text in manga / webtoon images (Korean, Japanese, Chinese, Spanish, French, German, Italian,
+Portuguese, Indonesian, Vietnamese), translates it to English and draws the translation over the original text. Built for Android 10 (targetSdk 29, minSdk 24), runs on newer versions too.
 
 ## How it works
 
-1. **Photo**: take one with the camera or pick one from the gallery.
-2. **Detect text**: ML Kit Korean text recognition (bundled in the APK, works offline).
+1. **Images**: take a photo, or pick several from the gallery. Gallery images are sorted by file name (1, 2, 10) and shown
+   one under the other like a webtoon strip. Choose the **text language** with the button under the toolbar first.
+2. **Detect text**: ML Kit text recognition for the chosen language (bundled in the APK, works offline).
 3. **Group**: nearby text blocks are merged into one speech bubble, so sentences are not translated in pieces.
 4. **Translate** with the engine you chose (see below).
 5. **Overlay**: the old text is painted over with the bubble's background colour and the English text is
-   drawn in the same spot with an auto-fitted font size. Tap the image to flip between original and translation.
-   **Save** writes a PNG to `Pictures/MangaLens`.
+   drawn in the same spot with an auto-fitted font size. Tap the strip to flip between originals and translations.
+   **Save** writes every translated page as a JPEG to `Pictures/MangaLens`.
 
 ## Translators (Translators button, you can download all of them and switch any time)
 
@@ -45,4 +46,5 @@ Android Studio, let it sync; if it asks for a wrapper, run `gradle wrapper --gra
 - Stylized lettering, sound effects and vertical text are often missed or misread by OCR.
 - The offline ONNX engines translate one sentence at a time without a decoder cache, so NLLB can take many seconds per bubble.
 - The patch colour is sampled around each bubble; text over detailed artwork will look like a flat sticker.
-- Korean only (source language is fixed to Korean).
+- Only one language per run; mixed-language pages are not supported. English is always the target.
+- OPUS-MT models exist for every listed language except Portuguese; NLLB and ML Kit cover all of them.

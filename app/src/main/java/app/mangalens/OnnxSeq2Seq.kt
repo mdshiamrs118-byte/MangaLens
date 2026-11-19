@@ -28,6 +28,7 @@ class OnnxSeq2Seq(private val dir: File, private val family: String) : Translato
     private var padId = 0
     private var srcLangId: Int? = null
     private var forcedBosId: Int? = null
+    private var idByContent: Map<String, Int> = emptyMap()
 
     fun load() {
         val cfg = File(dir, "config.json").reader().use { JsonParser.parseReader(it).asJsonObject }
@@ -38,9 +39,9 @@ class OnnxSeq2Seq(private val dir: File, private val family: String) : Translato
         val vocab = File(dir, "vocab.json").takeIf { it.exists() }
         val loaded = TokenizerLoader.load(File(dir, "tokenizer.json"), vocab)
         tok = loaded.tokenizer
+        idByContent = loaded.idByContent
         if (family == "nllb") {
-            srcLangId = loaded.idByContent["kor_Hang"] ?: error("Tokenizer has no kor_Hang token")
-            forcedBosId = loaded.idByContent["eng_Latn"] ?: error("Tokenizer has no eng_Latn token")
+            forcedBosId = idByContent["eng_Latn"] ?: error("Tokenizer has no eng_Latn token")
         }
 
         val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
@@ -50,6 +51,12 @@ class OnnxSeq2Seq(private val dir: File, private val family: String) : Translato
         }
         encoder = env.createSession(File(dir, "encoder.onnx").absolutePath, opts)
         decoder = env.createSession(File(dir, "decoder.onnx").absolutePath, opts)
+    }
+
+    /** NLLB only: sets the source language token, e.g. "spa_Latn". Cheap, no model reload. */
+    fun setSourceLanguage(nllbCode: String) {
+        if (family != "nllb") return
+        srcLangId = idByContent[nllbCode] ?: error("The NLLB tokenizer has no $nllbCode token")
     }
 
     override suspend fun translate(texts: List<String>, onProgress: (Int, Int) -> Unit): List<String> =

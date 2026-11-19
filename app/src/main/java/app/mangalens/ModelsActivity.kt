@@ -68,6 +68,8 @@ class ModelsActivity : AppCompatActivity() {
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
+    private fun lang(): Lang = Langs.byCode(prefs.sourceLang)
+
     private fun describe(e: Throwable): String {
         var msg = e.javaClass.simpleName + (e.message?.let { ": $it" } ?: "")
         e.cause?.let { msg += " (" + it.javaClass.simpleName + (it.message?.let { m -> ": $m" } ?: "") + ")" }
@@ -76,7 +78,7 @@ class ModelsActivity : AppCompatActivity() {
 
     private suspend fun refreshMlKit() {
         mlkitReady = try {
-            MlKitTranslator.isDownloaded()
+            MlKitTranslator.isDownloaded(lang().code)
         } catch (e: Exception) {
             false
         }
@@ -103,11 +105,15 @@ class ModelsActivity : AppCompatActivity() {
 
     private fun render() {
         list.removeAllViews()
-        for (info in Catalog.engines) list.addView(row(info))
+        list.addView(TextView(this).apply {
+            text = "Text language: ${lang().name}. Change it on the main screen; the downloads below are for this language."
+            setPadding(dp(8), dp(4), dp(8), dp(8))
+        })
+        for (info in Catalog.engines(lang())) list.addView(row(info))
     }
 
     private fun row(info: EngineInfo): LinearLayout {
-        val selected = prefs.engineId == info.id
+        val selected = prefs.engineKey == info.key
         val running = jobs[info.id]?.isActive == true
 
         val card = LinearLayout(this).apply {
@@ -136,7 +142,7 @@ class ModelsActivity : AppCompatActivity() {
             if (info.kind == EngineKind.ONLINE) buttons.addView(button("Configure") { configureOnline() })
             if (isReady(info)) {
                 if (!selected) buttons.addView(button("Use") {
-                    prefs.engineId = info.id
+                    prefs.engineKey = info.key
                     render()
                 })
                 if (info.kind != EngineKind.ONLINE) buttons.addView(button("Delete") { confirmDelete(info) })
@@ -159,9 +165,9 @@ class ModelsActivity : AppCompatActivity() {
         jobs[info.id] = lifecycleScope.launch {
             try {
                 if (info.kind == EngineKind.MLKIT) {
-                    progress[info.id] = "Downloading the Korean language pack…"
+                    progress[info.id] = "Downloading the language pack…"
                     render()
-                    MlKitTranslator.download()
+                    MlKitTranslator.download(lang().code)
                 } else {
                     store.download(info) { msg ->
                         progress[info.id] = msg
@@ -282,7 +288,7 @@ class ModelsActivity : AppCompatActivity() {
             try {
                 Engines.release(info.id)
                 if (info.kind == EngineKind.MLKIT) {
-                    MlKitTranslator.delete()
+                    MlKitTranslator.delete(lang().code)
                 } else {
                     withContext(Dispatchers.IO) { store.delete(info) }
                 }

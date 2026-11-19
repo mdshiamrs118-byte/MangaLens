@@ -18,17 +18,17 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 interface Translator {
-    /** Translates every text; the result has the same size and order as [texts]. */
+    /** Translates every text to English; the result has the same size and order as [texts]. */
     suspend fun translate(texts: List<String>, onProgress: (done: Int, total: Int) -> Unit): List<String>
 
     fun release() {}
 }
 
-/** Google ML Kit on-device translation (the Korean language pack is fetched by ML Kit). */
-class MlKitTranslator : Translator {
+/** Google ML Kit on-device translation; [sourceCode] is an ML Kit language code such as "es". */
+class MlKitTranslator(sourceCode: String) : Translator {
     private val client = Translation.getClient(
         TranslatorOptions.Builder()
-            .setSourceLanguage(TranslateLanguage.KOREAN)
+            .setSourceLanguage(sourceCode)
             .setTargetLanguage(TranslateLanguage.ENGLISH)
             .build()
     )
@@ -52,13 +52,13 @@ class MlKitTranslator : Translator {
     }
 
     companion object {
-        private fun koreanModel() = TranslateRemoteModel.Builder(TranslateLanguage.KOREAN).build()
+        private fun model(code: String) = TranslateRemoteModel.Builder(code).build()
 
-        suspend fun isDownloaded(): Boolean =
-            RemoteModelManager.getInstance().isModelDownloaded(koreanModel()).await()
+        suspend fun isDownloaded(code: String): Boolean =
+            RemoteModelManager.getInstance().isModelDownloaded(model(code)).await()
 
-        suspend fun download() {
-            val t = MlKitTranslator()
+        suspend fun download(code: String) {
+            val t = MlKitTranslator(code)
             try {
                 t.ensureModel()
             } finally {
@@ -66,24 +66,24 @@ class MlKitTranslator : Translator {
             }
         }
 
-        suspend fun delete() {
-            RemoteModelManager.getInstance().deleteDownloadedModel(koreanModel()).await()
+        suspend fun delete(code: String) {
+            RemoteModelManager.getInstance().deleteDownloadedModel(model(code)).await()
         }
     }
 }
 
 /**
- * Any OpenAI-compatible chat completions endpoint. The whole page is sent as one request so
- * the model sees every bubble and can keep names, tone and context consistent.
+ * Any OpenAI-compatible chat completions endpoint. All bubbles of a page are sent in one request
+ * so the model sees them together and can keep names, tone and context consistent.
  */
-class OnlineLlmTranslator(private val cfg: OnlineConfig) : Translator {
+class OnlineLlmTranslator(private val cfg: OnlineConfig, private val languageName: String) : Translator {
 
     override suspend fun translate(texts: List<String>, onProgress: (Int, Int) -> Unit): List<String> =
         withContext(Dispatchers.IO) {
             if (texts.isEmpty()) return@withContext emptyList()
             onProgress(0, texts.size)
 
-            val system = "You are a professional Korean to English translator for manga and webtoons. " +
+            val system = "You are a professional $languageName to English translator for manga and webtoons. " +
                 "Translate dialogue naturally and idiomatically, keep the speaker's tone, honorifics " +
                 "intent, slang and emotion, and keep names consistent across items. " +
                 "Items are speech bubbles in reading order from one page, so use them as context for each other. " +
