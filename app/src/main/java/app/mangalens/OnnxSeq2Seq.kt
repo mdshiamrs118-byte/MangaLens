@@ -21,7 +21,7 @@ class OnnxSeq2Seq(private val dir: File, private val family: String) : Translato
     private val env: OrtEnvironment = OrtEnvironment.getEnvironment()
     private var encoder: OrtSession? = null
     private var decoder: OrtSession? = null
-    private lateinit var tok: UnigramTokenizer
+    private lateinit var tok: SpTokenizer
 
     private var startId = 0
     private var eosId = 0
