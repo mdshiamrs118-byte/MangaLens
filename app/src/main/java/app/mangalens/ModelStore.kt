@@ -1,6 +1,9 @@
 package app.mangalens
 
+import android.content.ContentResolver
 import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
@@ -10,7 +13,15 @@ import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
-/** Downloads and stores the files of the offline ONNX engines. */
+class ImportResult(
+    val imported: List<String>,
+    /** File names that did not match any expected file. */
+    val skipped: List<String>,
+    /** Original (Hugging Face) names of files that are still missing. */
+    val missing: List<String>,
+)
+
+/** Downloads, imports and stores the files of the offline ONNX engines. */
 class ModelStore(context: Context) {
     private val root = File(context.applicationContext.getExternalFilesDir(null) ?: context.applicationContext.filesDir, "models")
 
@@ -41,6 +52,8 @@ class ModelStore(context: Context) {
                 connectTimeout = 20_000
                 readTimeout = 30_000
                 instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "MangaLens/1.0 (Android)")
+                setRequestProperty("Accept-Encoding", "identity")
                 if (existing > 0) setRequestProperty("Range", "bytes=$existing-")
             }
             try {
@@ -50,7 +63,13 @@ class ModelStore(context: Context) {
                     if (!part.renameTo(target)) throw IOException("Could not finish ${rf.relPath}")
                     continue
                 }
-                if (code != 200 && code != 206) throw IOException("HTTP $code for ${rf.relPath}")
+                if (code != 200 && code != 206) {
+                    throw IOException("HTTP $code from ${URL(rf.url).host} for ${rf.originalName}")
+                }
+                val type = conn.contentType ?: ""
+                if (type.startsWith("text/html")) {
+                    throw IOException("Got a web page instead of ${rf.originalName}")
+                }
 
                 val append = code == 206
                 if (!append) existing = 0L
@@ -82,6 +101,43 @@ class ModelStore(context: Context) {
             }
         }
     }
+
+    /**
+     * Copies files the user saved elsewhere (e.g. downloaded with a browser) into the engine's folder.
+     * Files are recognised by name: the original Hugging Face name or the name used inside the app,
+     * ignoring browser suffixes such as "(1)".
+     */
+    suspend fun importFiles(info: EngineInfo, resolver: ContentResolver, uris: List<Uri>): ImportResult =
+        withContext(Dispatchers.IO) {
+            val d = dir(info)
+            d.mkdirs()
+            val imported = ArrayList<String>()
+            val skipped = ArrayList<String>()
+            for (uri in uris) {
+                val name = displayName(resolver, uri) ?: uri.lastPathSegment ?: "unknown"
+                val rf = Catalog.matchFile(info, name)
+                if (rf == null) {
+                    skipped.add(name)
+                    continue
+                }
+                val part = File(d, rf.relPath + ".part")
+                val input = resolver.openInputStream(uri) ?: throw IOException("Cannot open $name")
+                input.use { src -> FileOutputStream(part).use { out -> src.copyTo(out) } }
+                val target = File(d, rf.relPath)
+                if (target.exists()) target.delete()
+                if (!part.renameTo(target)) throw IOException("Could not store ${rf.relPath}")
+                imported.add(rf.originalName)
+            }
+            val missing = info.files
+                .filter { val f = File(d, it.relPath); !(f.exists() && f.length() > 0) }
+                .map { it.originalName }
+            ImportResult(imported, skipped, missing)
+        }
+
+    private fun displayName(resolver: ContentResolver, uri: Uri): String? =
+        resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
 
     private fun mb(bytes: Long): String = String.format("%.1f MB", bytes / 1048576.0)
 }

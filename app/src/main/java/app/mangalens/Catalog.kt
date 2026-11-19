@@ -2,7 +2,10 @@ package app.mangalens
 
 enum class EngineKind { MLKIT, ONNX, ONLINE }
 
-data class RemoteFile(val url: String, val relPath: String)
+data class RemoteFile(val url: String, val relPath: String) {
+    /** The file name as it is on Hugging Face, which is what a browser saves it as. */
+    val originalName: String get() = url.substringAfterLast('/')
+}
 
 data class EngineInfo(
     val id: String,
@@ -64,6 +67,14 @@ object Catalog {
             approxSize = "no download",
         ),
     )
+
+    /** Finds which expected file a saved file name belongs to (browser suffixes like "(1)" are ignored). */
+    fun matchFile(info: EngineInfo, savedName: String): RemoteFile? {
+        val clean = savedName.trim().replace(Regex("\\s*\\(\\d+\\)(?=\\.[^.]*$)"), "")
+        return info.files.firstOrNull {
+            it.relPath.equals(clean, ignoreCase = true) || it.originalName.equals(clean, ignoreCase = true)
+        }
+    }
 
     fun byId(id: String): EngineInfo = engines.firstOrNull { it.id == id } ?: engines.first()
 }
