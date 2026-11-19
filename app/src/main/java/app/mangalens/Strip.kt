@@ -9,16 +9,21 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Shows all pages one under the other like a webtoon, as a list of image bands loaded on demand. */
+/**
+ * Shows all pages one under the other like a webtoon, as a list of image bands loaded on demand.
+ * Pages can be appended while a chapter is still loading.
+ */
 class StripAdapter(
     private val scope: CoroutineScope,
     private val loader: RegionLoader,
     private val recycler: RecyclerView,
+    private val placeholder: Int,
     private val onTap: () -> Unit,
+    private val onLongTap: () -> Unit,
 ) : RecyclerView.Adapter<StripAdapter.Holder>() {
 
-    private var pages: List<Page> = emptyList()
-    private var slices: List<Slice> = emptyList()
+    private val pages = ArrayList<Page>()
+    private val slices = ArrayList<Slice>()
 
     /** True shows the translated pages (where a translation exists), false the originals. */
     var showTranslated = false
@@ -27,11 +32,26 @@ class StripAdapter(
         var job: Job? = null
     }
 
-    fun setPages(newPages: List<Page>) {
-        pages = newPages
-        slices = PageMath.slices(newPages.map { it.h })
+    val pageCount: Int get() = pages.size
+
+    fun clear() {
+        pages.clear()
+        slices.clear()
+        showTranslated = false
         notifyDataSetChanged()
     }
+
+    fun append(page: Page) {
+        val index = pages.size
+        pages.add(page)
+        val added = PageMath.slices(listOf(page.h)).map { it.copy(page = index) }
+        val start = slices.size
+        slices.addAll(added)
+        notifyItemRangeInserted(start, added.size)
+    }
+
+    /** Index of the page shown at list position [position], or -1. */
+    fun pageAt(position: Int): Int = slices.getOrNull(position)?.page ?: -1
 
     /** Re-draws the bands of one page, e.g. after its translation is ready. */
     fun pageChanged(page: Int) {
@@ -49,6 +69,7 @@ class StripAdapter(
         val iv = ImageView(parent.context).apply {
             layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 100)
             scaleType = ImageView.ScaleType.FIT_XY
+            setBackgroundColor(placeholder)
         }
         return Holder(iv)
     }
@@ -65,6 +86,10 @@ class StripAdapter(
         holder.image.setImageDrawable(null)
         holder.image.layoutParams = RecyclerView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height)
         holder.image.setOnClickListener { onTap() }
+        holder.image.setOnLongClickListener {
+            onLongTap()
+            true
+        }
 
         val translated = page.translated
         val file = if (showTranslated && translated != null) translated else page.file

@@ -5,14 +5,19 @@ Portuguese, Indonesian, Vietnamese), translates it to English and draws the tran
 
 ## How it works
 
-1. **Images**: take a photo, or pick several from the gallery. Gallery images are sorted by file name (1, 2, 10) and shown
-   one under the other like a webtoon strip. Choose the **text language** with the button under the toolbar first.
-2. **Detect text**: ML Kit text recognition for the chosen language (bundled in the APK, works offline).
-3. **Group**: nearby text blocks are merged into one speech bubble, so sentences are not translated in pieces.
-4. **Translate** with the engine you chose (see below).
-5. **Overlay**: the old text is painted over with the bubble's background colour and the English text is
-   drawn in the same spot with an auto-fitted font size. Tap the strip to flip between originals and translations.
-   **Save** writes every translated page as a JPEG to `Pictures/MangaLens`.
+1. **Library**: on first launch, choose your manga root folder. MangaLens expects
+   `Manga Title / Chapter 1 / 001.jpg, 002.jpg …`, shows each series as a cover grid and each chapter in a list
+   (chapters you opened are marked, the last one is highlighted). Folder access is read-only and kept between launches.
+   You can still open single images from the gallery (several at once) or the camera with the bottom tabs.
+2. **Reader**: pages of a chapter are shown one under the other like a webtoon, in natural file-name order (1, 2, 10).
+   **Tap a page to hide or show every control** (top bar, bottom bar, page counter, status bar and navigation bar).
+   **Long-press** a page to flip between the original and the translation. The bottom bar has previous / next chapter,
+   Translate, compare and Save.
+3. **Detect text**: ML Kit text recognition for the chosen language (bundled in the APK, works offline).
+4. **Group**: nearby text blocks are merged into one speech bubble, so sentences are not translated in pieces.
+5. **Translate** with the engine you chose (see below).
+6. **Overlay**: the old text is painted over with the bubble's background colour and the English text is
+   drawn in the same spot with an auto-fitted font size. **Save** writes every translated page as a JPEG to `Pictures/MangaLens`.
 
 ## Translators (Translators button, you can download all of them and switch any time)
 

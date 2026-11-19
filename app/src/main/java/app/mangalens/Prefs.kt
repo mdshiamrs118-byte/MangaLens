@@ -31,5 +31,21 @@ class Prefs(context: Context) {
         get() = sp.getString("api_model", "") ?: ""
         set(v) = sp.edit().putString("api_model", v).apply()
 
+    /** The picked manga root folder (a persisted Storage Access Framework tree URI), or null. */
+    var rootUri: String?
+        get() = sp.getString("root", null)
+        set(v) = sp.edit().putString("root", v).apply()
+
+    fun markRead(titleDoc: String, chapterDoc: String) {
+        val set = HashSet(sp.getStringSet("read", emptySet()) ?: emptySet())
+        set.add("$titleDoc|$chapterDoc")
+        sp.edit().putStringSet("read", set).putString("last_$titleDoc", chapterDoc).apply()
+    }
+
+    fun isRead(titleDoc: String, chapterDoc: String): Boolean =
+        (sp.getStringSet("read", emptySet()) ?: emptySet()).contains("$titleDoc|$chapterDoc")
+
+    fun lastChapter(titleDoc: String): String? = sp.getString("last_$titleDoc", null)
+
     fun online() = OnlineConfig(apiBase.trim(), apiKey.trim(), apiModel.trim())
 }

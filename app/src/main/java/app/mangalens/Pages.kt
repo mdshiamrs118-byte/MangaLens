@@ -28,37 +28,38 @@ object PageIO {
     fun pagesDir(context: Context) = File(context.cacheDir, "pages")
     fun translatedDir(context: Context) = File(context.cacheDir, "translated")
 
+    /** Empties the page caches; call before loading a new chapter. */
+    fun reset(context: Context) {
+        pagesDir(context).deleteRecursively()
+        translatedDir(context).deleteRecursively()
+        pagesDir(context).mkdirs()
+        translatedDir(context).mkdirs()
+    }
+
     /**
-     * Copies the picked images into the app cache (so they stay readable), reads their size and
-     * returns them in natural file-name order, which is the reading order for numbered webtoon files.
+     * Copies one image into the app cache (so it stays readable) and reads its size.
+     * Returns null when the file cannot be read as an image.
      */
-    suspend fun importUris(context: Context, uris: List<Uri>, onProgress: (Int, Int) -> Unit): List<Page> =
+    suspend fun importOne(context: Context, name: String, uri: Uri, index: Int, stamp: Long): Page? =
         withContext(Dispatchers.IO) {
-            val dir = pagesDir(context)
-            dir.deleteRecursively()
-            translatedDir(context).deleteRecursively()
-            dir.mkdirs()
-            translatedDir(context).mkdirs()
-
-            val resolver = context.contentResolver
-            val named = uris
-                .map { (displayName(resolver, it) ?: it.lastPathSegment ?: "image") to it }
-                .sortedWith { a, b -> PageMath.naturalCompare(a.first, b.first) }
-
-            val stamp = System.currentTimeMillis()
-            val pages = ArrayList<Page>()
-            for ((i, pair) in named.withIndex()) {
-                ensureActive()
-                onProgress(i, named.size)
-                val (name, uri) = pair
-                val f = File(dir, "s${stamp}_p" + i.toString().padStart(3, '0'))
-                val input = resolver.openInputStream(uri) ?: continue
+            val dir = pagesDir(context).apply { mkdirs() }
+            val f = File(dir, "s${stamp}_p" + index.toString().padStart(4, '0'))
+            try {
+                val input = context.contentResolver.openInputStream(uri) ?: return@withContext null
                 input.use { src -> FileOutputStream(f).use { src.copyTo(it) } }
                 val page = prepare(name, f)
-                if (page != null) pages.add(page) else f.delete()
+                if (page == null) f.delete()
+                page
+            } catch (e: Exception) {
+                f.delete()
+                null
             }
-            pages
         }
+
+    /** Picked images sorted by natural file-name order (1, 2, 10). */
+    fun sortedByName(resolver: ContentResolver, uris: List<Uri>): List<Pair<String, Uri>> =
+        uris.map { (displayName(resolver, it) ?: it.lastPathSegment ?: "image") to it }
+            .sortedWith { a, b -> PageMath.naturalCompare(a.first, b.first) }
 
     private fun displayName(resolver: ContentResolver, uri: Uri): String? =
         try {

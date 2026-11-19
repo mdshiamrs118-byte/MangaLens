@@ -7,8 +7,8 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
+import android.view.View
 import android.view.ViewGroup
-import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -50,9 +50,23 @@ class ModelsActivity : AppCompatActivity() {
 
         list = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(8), dp(8), dp(8))
+            setPadding(dp(12), dp(4), dp(12), dp(24))
         }
-        setContentView(ScrollView(this).apply { addView(list) })
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setBackgroundColor(Ui.color(this@ModelsActivity, R.color.bg))
+            fitsSystemWindows = true
+        }
+        val header = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(dp(8), dp(8), dp(12), dp(4))
+        }
+        header.addView(Ui.iconButton(this, R.drawable.ic_back, "Back") { finish() })
+        header.addView(Ui.text(this, "Translators", 22f, R.color.on_bg, true).apply { setPadding(dp(8), 0, 0, 0) })
+        root.addView(header)
+        root.addView(ScrollView(this).apply { addView(list) }, LinearLayout.LayoutParams(-1, 0, 1f))
+        setContentView(root)
         render()
     }
 
@@ -64,7 +78,7 @@ class ModelsActivity : AppCompatActivity() {
         }
     }
 
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
+    private fun dp(v: Int): Int = Ui.dp(this, v)
 
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
@@ -98,17 +112,20 @@ class ModelsActivity : AppCompatActivity() {
         }
     }
 
-    private fun button(label: String, onClick: () -> Unit): Button = Button(this).apply {
-        text = label
-        setOnClickListener { onClick() }
-    }
+    private fun button(label: String, filled: Boolean = false, onClick: () -> Unit): View =
+        Pill(this, filled).apply {
+            set(label, null)
+            onTap(onClick)
+            layoutParams = LinearLayout.LayoutParams(-2, -2).apply { rightMargin = dp(8); topMargin = dp(10) }
+        }
 
     private fun render() {
         list.removeAllViews()
-        list.addView(TextView(this).apply {
-            text = "Text language: ${lang().name}. Change it on the main screen; the downloads below are for this language."
-            setPadding(dp(8), dp(4), dp(8), dp(8))
-        })
+        list.addView(Ui.text(
+            this,
+            "Text language: ${lang().name}. Change it on the home or reader screen; the downloads below are for this language.",
+            13f, R.color.on_muted,
+        ).apply { setPadding(dp(4), dp(4), dp(4), dp(12)) })
         for (info in Catalog.engines(lang())) list.addView(row(info))
     }
 
@@ -118,20 +135,31 @@ class ModelsActivity : AppCompatActivity() {
 
         val card = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(8), dp(14), dp(8), dp(14))
+            setPadding(dp(16), dp(16), dp(16), dp(14))
+            background = Ui.rounded(
+                Ui.color(this@ModelsActivity, R.color.surface), dp(16).toFloat(),
+                if (selected) Ui.color(this@ModelsActivity, R.color.accent) else Ui.color(this@ModelsActivity, R.color.outline),
+                dp(if (selected) 2 else 1),
+            )
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
         }
-        card.addView(TextView(this).apply {
-            text = (if (selected) "● " else "") + info.title
-            textSize = 17f
-            setTypeface(typeface, Typeface.BOLD)
-        })
-        card.addView(TextView(this).apply { text = info.description })
-        card.addView(TextView(this).apply { text = "Size: ${info.approxSize}  •  ${statusOf(info)}" })
+        val titleRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+        }
+        titleRow.addView(Ui.text(this, info.title, 17f, R.color.on_bg, true), LinearLayout.LayoutParams(0, -2, 1f))
+        if (selected) titleRow.addView(Ui.text(this, "IN USE", 11f, R.color.accent, true))
+        card.addView(titleRow)
+        card.addView(Ui.text(this, info.description, 13f, R.color.on_muted).apply { setPadding(0, dp(6), 0, dp(6)) })
+        val ready = isReady(info)
+        card.addView(Ui.text(
+            this, "Size: ${info.approxSize}  •  ${statusOf(info)}", 12f,
+            if (ready) R.color.ok else R.color.on_muted,
+        ))
         errors[info.id]?.let { err ->
-            card.addView(TextView(this).apply {
-                text = err
-                setTextColor(0xFFCC0000.toInt())
+            card.addView(Ui.text(this, err, 12f, R.color.error).apply {
                 setTextIsSelectable(true)
+                setPadding(0, dp(8), 0, 0)
             })
         }
 
@@ -140,21 +168,25 @@ class ModelsActivity : AppCompatActivity() {
             buttons.addView(button("Cancel") { jobs[info.id]?.cancel() })
         } else {
             if (info.kind == EngineKind.ONLINE) buttons.addView(button("Configure") { configureOnline() })
-            if (isReady(info)) {
-                if (!selected) buttons.addView(button("Use") {
+            if (ready) {
+                if (!selected) buttons.addView(button("Use", true) {
                     prefs.engineKey = info.key
                     render()
                 })
                 if (info.kind != EngineKind.ONLINE) buttons.addView(button("Delete") { confirmDelete(info) })
             } else if (info.kind == EngineKind.MLKIT) {
-                buttons.addView(button("Download") { startDownload(info) })
+                buttons.addView(button("Download", true) { startDownload(info) })
             } else if (info.kind == EngineKind.ONNX) {
-                buttons.addView(button("Download") { startDownload(info) })
+                buttons.addView(button("Download", true) { startDownload(info) })
                 buttons.addView(button("Links") { showLinks(info) })
                 buttons.addView(button("From files") { pickFor(info) })
             }
         }
-        card.addView(buttons, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        val scroller = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(buttons)
+        }
+        card.addView(scroller, LinearLayout.LayoutParams(-1, -2))
         return card
     }
 

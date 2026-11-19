@@ -52,3 +52,16 @@ object PageMath {
         return (a.length - i) - (b.length - j)
     }
 }
+
+object ImageNames {
+    private val exts = setOf("jpg", "jpeg", "png", "webp", "bmp", "gif", "heic", "avif")
+
+    /** True for image files; hidden files and non-images (thumbs, txt, json) are ignored. */
+    fun isImage(name: String, mime: String?): Boolean {
+        if (name.startsWith(".")) return false
+        if (mime != null && mime.startsWith("image/")) return true
+        val dot = name.lastIndexOf('.')
+        if (dot < 0) return false
+        return name.substring(dot + 1).lowercase() in exts
+    }
+}
