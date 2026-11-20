@@ -21,6 +21,9 @@ object TranslationStore {
     fun fileFor(ctx: Context, key: String, index: Int, pageName: String): File =
         File(dir(ctx, key), index.toString().padStart(4, '0') + "_" + sha1(pageName).take(6) + ".jpg")
 
+    /** The red-outlined twin of a translated page file. */
+    fun markedOf(f: File): File = File(f.path.removeSuffix(".jpg") + "_fb.jpg")
+
     fun has(ctx: Context, key: String): Boolean =
         dir(ctx, key).list()?.any { it.endsWith(".jpg") } == true
 

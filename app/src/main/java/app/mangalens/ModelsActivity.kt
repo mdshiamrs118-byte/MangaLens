@@ -132,7 +132,45 @@ class ModelsActivity : AppCompatActivity() {
             "Text language: ${lang().name}. Change it on the home or reader screen; the downloads below are for this language.",
             13f, R.color.on_muted,
         ).apply { setPadding(dp(4), dp(4), dp(4), dp(12)) })
+        list.addView(toggles())
         for (info in Catalog.engines(lang())) list.addView(row(info))
+    }
+
+    private fun switchRow(title: String, sub: String, checked: Boolean, onChange: (Boolean) -> Unit): LinearLayout {
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(Ui.text(this, title, 15f, R.color.on_bg, true))
+        col.addView(Ui.text(this, sub, 12f, R.color.on_muted))
+        row.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(androidx.appcompat.widget.SwitchCompat(this).apply {
+            isChecked = checked
+            setOnCheckedChangeListener { _, on -> onChange(on) }
+        })
+        return row
+    }
+
+    private fun toggles(): LinearLayout {
+        val card = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(10), dp(16), dp(10))
+            background = Ui.rounded(Ui.color(this@ModelsActivity, R.color.surface), dp(16).toFloat(), Ui.color(this@ModelsActivity, R.color.outline), dp(1))
+            layoutParams = LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(12) }
+        }
+        card.addView(switchRow(
+            "Fall back to DuckDuckGo AI Chat",
+            "If a web AI or the online LLM fails on a page, that page is translated with DuckDuckGo AI Chat instead.",
+            prefs.fallbackDuck,
+        ) { prefs.fallbackDuck = it })
+        card.addView(switchRow(
+            "Mark fallback pages in red",
+            "Draw a red outline around the text of pages that used the fallback, so you can spot them.",
+            prefs.markFallback,
+        ) { prefs.markFallback = it })
+        return card
     }
 
     private fun row(info: EngineInfo): LinearLayout {

@@ -15,13 +15,19 @@ import kotlin.math.min
 /** Paints over the original text and draws the translation in the same spot. */
 object OverlayRenderer {
 
-    fun render(src: Bitmap, bubbles: List<Bubble>, texts: List<String>): Bitmap {
+    /** [outline] draws a red frame around every translated box (used to flag fallback translations). */
+    fun render(src: Bitmap, bubbles: List<Bubble>, texts: List<String>, outline: Boolean = false): Bitmap {
         val out = src.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(out)
         val minSize = max(10f, src.width / 100f)
         val maxSize = max(minSize, src.width / 16f)
 
         val fill = Paint(Paint.ANTI_ALIAS_FLAG)
+        val frame = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = Color.rgb(255, 45, 45)
+            strokeWidth = max(3f, src.width / 220f)
+        }
         val base = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
         }
@@ -56,6 +62,7 @@ object OverlayRenderer {
 
             val radius = min(rect.width(), rect.height()) * 0.12f
             canvas.drawRoundRect(rect, radius, radius, fill)
+            if (outline) canvas.drawRoundRect(rect, radius, radius, frame)
             canvas.save()
             canvas.translate(
                 rect.left + (rect.width() - layout.width) / 2f,

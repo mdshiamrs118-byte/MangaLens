@@ -51,5 +51,15 @@ class Prefs(context: Context) {
 
     fun setWebSigned(siteId: String, v: Boolean) = sp.edit().putBoolean("web_$siteId", v).apply()
 
+    /** When a web AI (or the online LLM) fails on a page, translate that page with DuckDuckGo AI Chat instead. */
+    var fallbackDuck: Boolean
+        get() = sp.getBoolean("fallback_duck", false)
+        set(v) = sp.edit().putBoolean("fallback_duck", v).apply()
+
+    /** Draw a red outline around the text of pages that used the fallback. */
+    var markFallback: Boolean
+        get() = sp.getBoolean("mark_fallback", true)
+        set(v) = sp.edit().putBoolean("mark_fallback", v).apply()
+
     fun online() = OnlineConfig(apiBase.trim(), apiKey.trim(), apiModel.trim())
 }

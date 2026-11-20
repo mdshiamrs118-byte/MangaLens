@@ -36,6 +36,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.io.FileInputStream
 import java.io.FileOutputStream
 
@@ -124,6 +125,7 @@ class ReaderActivity : AppCompatActivity() {
         readerRoot = content as? FrameLayout
         WebAiHost.container = readerRoot
         setContentView(content)
+        adapter.markFallback = prefs.markFallback
         refreshChips()
         start()
     }
@@ -131,6 +133,10 @@ class ReaderActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         refreshChips()
+        if (adapter.markFallback != prefs.markFallback) {
+            adapter.markFallback = prefs.markFallback
+            adapter.refreshAll()
+        }
     }
 
     override fun onDestroy() {
@@ -407,7 +413,11 @@ class ReaderActivity : AppCompatActivity() {
                 val page = PageIO.importOne(applicationContext, s.first, s.second, i, stamp) ?: continue
                 if (key != null) {
                     val saved = TranslationStore.fileFor(applicationContext, key, pages.size, page.name)
-                    if (saved.exists()) page.translated = saved
+                    if (saved.exists()) {
+                        page.translated = saved
+                        val fb = TranslationStore.markedOf(saved)
+                        if (fb.exists()) page.translatedMarked = fb
+                    }
                 }
                 pages.add(page)
                 adapter.append(page)
@@ -472,8 +482,24 @@ class ReaderActivity : AppCompatActivity() {
         translateJob = lifecycleScope.launch {
             try {
                 setStatus("Loading ${info.title}…")
-                val translator = Engines.obtain(applicationContext, info, l)
+                val canFallback = prefs.fallbackDuck &&
+                    (info.kind == EngineKind.WEBAI || info.kind == EngineKind.ONLINE) && info.key != "web-duckai"
+                var fallback: Translator? = null
+                suspend fun duck(): Translator {
+                    fallback?.let { return it }
+                    val d = Catalog.engines(l).first { it.key == "web-duckai" }
+                    return Engines.obtain(applicationContext, d, l).also { fallback = it }
+                }
+                val translator: Translator? = try {
+                    Engines.obtain(applicationContext, info, l)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Throwable) {
+                    if (!canFallback) throw e
+                    null
+                }
 
+                var fallbackPages = 0
                 var boxes = 0
                 var pagesWithText = 0
                 var alreadyDone = 0
@@ -491,8 +517,31 @@ class ReaderActivity : AppCompatActivity() {
                         val bubbles = Grouping.group(blocks, l.script)
                         if (bubbles.isEmpty()) continue
 
-                        val results = translator.translate(bubbles.map { it.text }) { done, total ->
+                        val texts = bubbles.map { it.text }
+                        val progressCb: (Int, Int) -> Unit = { done, total ->
                             runOnUiThread { setStatus("$label: translating ${minOf(done + 1, total)}/$total…") }
+                        }
+                        var usedFallback = false
+                        val results = if (translator != null) {
+                            try {
+                                translator.translate(texts, progressCb)
+                            } catch (e: CancellationException) {
+                                throw e
+                            } catch (e: Throwable) {
+                                if (!canFallback) throw e
+                                setStatus("$label: ${info.title} failed, using DuckDuckGo AI Chat…")
+                                usedFallback = true
+                                try {
+                                    duck().translate(texts, progressCb)
+                                } catch (e2: CancellationException) {
+                                    throw e2
+                                } catch (e2: Throwable) {
+                                    throw IOException("${info.title}: ${e.message}. DuckDuckGo: ${e2.message}")
+                                }
+                            }
+                        } else {
+                            usedFallback = true
+                            duck().translate(texts, progressCb)
                         }
 
                         setStatus("$label: drawing…")
@@ -502,16 +551,20 @@ class ReaderActivity : AppCompatActivity() {
                         } else {
                             File(PageIO.translatedDir(applicationContext), "t${stamp}_$i.jpg")
                         }
-                        withContext(Dispatchers.IO) {
-                            target.parentFile?.mkdirs()
-                            val tmp = File(target.path + ".tmp")
-                            FileOutputStream(tmp).use { out.compress(Bitmap.CompressFormat.JPEG, 93, it) }
-                            if (!tmp.renameTo(target)) {
-                                tmp.copyTo(target, overwrite = true)
-                                tmp.delete()
-                            }
-                        }
+                        saveJpeg(out, target)
                         out.recycle()
+
+                        val marked = TranslationStore.markedOf(target)
+                        if (usedFallback) {
+                            val outlined = withContext(Dispatchers.Default) { OverlayRenderer.render(bmp, bubbles, results, true) }
+                            saveJpeg(outlined, marked)
+                            outlined.recycle()
+                            page.translatedMarked = marked
+                            fallbackPages++
+                        } else {
+                            marked.delete()
+                            page.translatedMarked = null
+                        }
 
                         val old = page.translated
                         if (old != null && old != target) old.delete()
@@ -532,7 +585,9 @@ class ReaderActivity : AppCompatActivity() {
                 setStatus(
                     if (pagesWithText == 0 && alreadyDone > 0) "Everything from page ${startPage + 1} down is already translated."
                     else if (pagesWithText == 0) "No ${l.name} text found from page ${startPage + 1} down. Check the text language."
-                    else "Done: $boxes text boxes on $pagesWithText page(s), from page ${startPage + 1} down. Long-press a page to compare."
+                    else "Done: $boxes text boxes on $pagesWithText page(s), from page ${startPage + 1} down." +
+                        (if (fallbackPages > 0) " $fallbackPages page(s) used DuckDuckGo AI Chat." else "") +
+                        " Long-press a page to compare."
                 )
             } catch (e: CancellationException) {
                 setStatus("Stopped.")
@@ -542,6 +597,16 @@ class ReaderActivity : AppCompatActivity() {
             } finally {
                 setBusy(false)
             }
+        }
+    }
+
+    private suspend fun saveJpeg(bmp: Bitmap, target: File) = withContext(Dispatchers.IO) {
+        target.parentFile?.mkdirs()
+        val tmp = File(target.path + ".tmp")
+        FileOutputStream(tmp).use { bmp.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+        if (!tmp.renameTo(target)) {
+            tmp.copyTo(target, overwrite = true)
+            tmp.delete()
         }
     }
 

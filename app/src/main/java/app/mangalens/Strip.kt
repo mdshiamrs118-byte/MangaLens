@@ -28,6 +28,9 @@ class StripAdapter(
     /** True shows the translated pages (where a translation exists), false the originals. */
     var showTranslated = false
 
+    /** Show the red-outlined version of pages that were translated by the fallback translator. */
+    var markFallback = true
+
     class Holder(val image: ImageView) : RecyclerView.ViewHolder(image) {
         var job: Job? = null
     }
@@ -92,7 +95,12 @@ class StripAdapter(
         }
 
         val translated = page.translated
-        val file = if (showTranslated && translated != null) translated else page.file
+        val marked = page.translatedMarked
+        val file = when {
+            !showTranslated || translated == null -> page.file
+            markFallback && marked != null -> marked
+            else -> translated ?: page.file
+        }
         holder.job = scope.launch {
             val bmp = loader.slice(file, page.h, s.y0, s.y1, width)
             if (bmp != null) holder.image.setImageBitmap(bmp)

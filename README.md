@@ -41,6 +41,10 @@ while a download runs; an interrupted download resumes where it stopped.
 The online engine sends the detected text to the provider you configure. The API key is stored in the app's
 private preferences on the phone.
 
+Fallback: in Translators, **Fall back to DuckDuckGo AI Chat** makes a page that fails with a web AI (or the online LLM)
+get translated by DuckDuckGo AI Chat instead, so the run keeps going. **Mark fallback pages in red** draws a red outline
+around the text of those pages; both toggles can be flipped at any time (the outline switch applies instantly).
+
 Web AI notes: it uses the site's own free limits and your own account, so it is slow (a page takes 10-60 s), can stop
 working whenever a site changes its layout or shows a human check (open the site from Translators to pass it), and may be
 against a site's terms. Google may refuse sign-in inside an app, which can block Gemini. Text goes to that site.

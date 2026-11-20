@@ -21,6 +21,9 @@ import java.util.concurrent.Executors
 /** One image of the strip. [file] is a private copy of the picked image; [translated] is the rendered result. */
 class Page(val name: String, val file: File, val w: Int, val h: Int) {
     var translated: File? = null
+
+    /** Same translation with a red outline around every text box; only set for pages a fallback translator did. */
+    var translatedMarked: File? = null
 }
 
 object PageIO {
