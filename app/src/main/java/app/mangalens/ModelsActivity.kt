@@ -170,6 +170,27 @@ class ModelsActivity : AppCompatActivity() {
             "Draw a red outline around the text of pages that used the fallback, so you can spot them.",
             prefs.markFallback,
         ) { prefs.markFallback = it })
+
+        val limitRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            setPadding(0, dp(6), 0, dp(6))
+        }
+        val col = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+        col.addView(Ui.text(this, "Web AI time limit per page", 15f, R.color.on_bg, true))
+        col.addView(Ui.text(this, "A page that takes longer counts as failed (and uses the fallback if it is on). Tap to change.", 12f, R.color.on_muted))
+        limitRow.addView(col, LinearLayout.LayoutParams(0, -2, 1f))
+        val limit = Pill(this, false).apply {
+            set("${prefs.webTimeoutSec} s", null)
+            onTap {
+                val options = listOf(45, 90, 150)
+                val next = options[(options.indexOf(prefs.webTimeoutSec) + 1).mod(options.size)]
+                prefs.webTimeoutSec = next
+                set("$next s", null)
+            }
+        }
+        limitRow.addView(limit)
+        card.addView(limitRow)
         return card
     }
 

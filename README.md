@@ -43,7 +43,7 @@ private preferences on the phone.
 
 Fallback: in Translators, **Fall back to DuckDuckGo AI Chat** makes a page that fails with a web AI (or the online LLM)
 get translated by DuckDuckGo AI Chat instead, so the run keeps going. **Mark fallback pages in red** draws a red outline
-around the text of those pages; both toggles can be flipped at any time (the outline switch applies instantly).
+around the text of those pages. **Web AI time limit per page** (45 / 90 / 150 s, default 90) decides when a slow page counts as failed. Both toggles can be flipped at any time (the outline switch applies instantly).
 
 Web AI notes: it uses the site's own free limits and your own account, so it is slow (a page takes 10-60 s), can stop
 working whenever a site changes its layout or shows a human check (open the site from Translators to pass it), and may be

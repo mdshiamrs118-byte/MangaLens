@@ -111,7 +111,11 @@ private class QuietWebView(ctx: Context) : WebView(ctx) {
  * Translates by typing the text into a chat website in a hidden browser and reading the answer back.
  * Needs the user to be signed in once (Translators > Sign in). Site pages change, so this can break.
  */
-class WebAiTranslator(private val site: WebSite, private val languageName: String) : Translator {
+class WebAiTranslator(
+    private val site: WebSite,
+    private val languageName: String,
+    private val timeoutMs: Long,
+) : Translator {
 
     override suspend fun translate(texts: List<String>, onProgress: (Int, Int) -> Unit): List<String> =
         withContext(Dispatchers.Main) {
@@ -130,6 +134,7 @@ class WebAiTranslator(private val site: WebSite, private val languageName: Strin
             web.alpha = 0.01f
             host.addView(web, 0, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
             try {
+                val answer = withTimeoutOrNull(timeoutMs) {
                 web.loadUrl(site.url)
                 withTimeoutOrNull(45_000) { loaded.await() }
 
@@ -159,7 +164,7 @@ class WebAiTranslator(private val site: WebSite, private val languageName: Strin
                 // wait for the reply
                 var segment: String? = null
                 var last = ""
-                for (i in 0 until 130) {
+                while (true) {
                     delay(1500)
                     val page = web.readText()
                     last = page
@@ -183,6 +188,8 @@ class WebAiTranslator(private val site: WebSite, private val languageName: Strin
                 if (result.size < texts.size) throw IOException("${site.title} returned ${result.size} items, expected ${texts.size}")
                 onProgress(texts.size, texts.size)
                 result.take(texts.size)
+                }
+                answer ?: throw IOException("${site.title} took longer than ${timeoutMs / 1000} s for this page.")
             } finally {
                 host.removeView(web)
                 web.stopLoading()

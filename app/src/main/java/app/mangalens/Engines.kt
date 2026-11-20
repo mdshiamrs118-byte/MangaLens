@@ -25,7 +25,7 @@ object Engines {
             check(!site.loginNeeded || Prefs(app).webSigned(site.id)) {
                 "Open Translators > ${site.title} > Sign in first."
             }
-            return WebAiTranslator(site, lang.name)
+            return WebAiTranslator(site, lang.name, Prefs(app).webTimeoutSec * 1000L)
         }
 
         // ML Kit models are per language; the ONNX engines only need their NLLB source token switched.

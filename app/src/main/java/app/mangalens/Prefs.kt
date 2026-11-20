@@ -61,5 +61,10 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("mark_fallback", true)
         set(v) = sp.edit().putBoolean("mark_fallback", v).apply()
 
+    /** How long one page may take on a web AI before it counts as failed (and falls back, if enabled). */
+    var webTimeoutSec: Int
+        get() = sp.getInt("web_timeout", 90)
+        set(v) = sp.edit().putInt("web_timeout", v).apply()
+
     fun online() = OnlineConfig(apiBase.trim(), apiKey.trim(), apiModel.trim())
 }
