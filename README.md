@@ -13,6 +13,10 @@ Portuguese, Indonesian, Vietnamese), translates it to English and draws the tran
    **Tap a page to hide or show every control** (top bar, bottom bar, page counter, status bar and navigation bar).
    **Long-press** a page to flip between the original and the translation. The bottom bar has previous / next chapter,
    Translate, compare and Save.
+   **Translate starts at the page you are on and goes down**; pages above are skipped, and pages that already have a
+   translation are skipped too. Translations of library chapters are kept inside the app, so they are still there when you
+   reopen the chapter; chapters that have one show a green dot in the chapter list, and its three-dot menu has
+   **Delete translation** (your original images are never touched).
 3. **Detect text**: ML Kit text recognition for the chosen language (bundled in the APK, works offline).
 4. **Group**: nearby text blocks are merged into one speech bubble, so sentences are not translated in pieces.
 5. **Translate** with the engine you chose (see below).

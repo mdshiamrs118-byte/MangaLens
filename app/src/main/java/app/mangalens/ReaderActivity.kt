@@ -95,6 +95,8 @@ class ReaderActivity : AppCompatActivity() {
     private var titleName = ""
     private var chapters: List<Chapter> = emptyList()
     private var chapterIndex = -1
+    /** Set for library chapters: their translations are kept on disk under this key. */
+    private var persistKey: String? = null
     private var loading = false
     private var chromeVisible = true
     private var lastWidth = 0
@@ -364,6 +366,7 @@ class ReaderActivity : AppCompatActivity() {
         translateJob?.cancel()
         chapterIndex = index
         val ch = chapters[index]
+        persistKey = TranslationStore.key(titleDoc, ch.docId)
         subText.text = ch.name
         prefs.markRead(titleDoc, ch.docId)
         updateNav()
@@ -388,6 +391,8 @@ class ReaderActivity : AppCompatActivity() {
             pages.clear()
             adapter.clear()
             PageIO.reset(applicationContext)
+            val key = persistKey
+            adapter.showTranslated = key != null && TranslationStore.has(applicationContext, key)
             Ui.enable(compareBtn, false)
             Ui.enable(saveBtn, false)
             recycler.scrollToPosition(0)
@@ -400,13 +405,19 @@ class ReaderActivity : AppCompatActivity() {
             for ((i, s) in sources.withIndex()) {
                 setStatus("Loading pages… ${i + 1}/${sources.size}")
                 val page = PageIO.importOne(applicationContext, s.first, s.second, i, stamp) ?: continue
+                if (key != null) {
+                    val saved = TranslationStore.fileFor(applicationContext, key, pages.size, page.name)
+                    if (saved.exists()) page.translated = saved
+                }
                 pages.add(page)
                 adapter.append(page)
                 updateCounter()
             }
+            val done = pages.count { it.translated != null }
             setStatus(
                 if (pages.isEmpty()) "Could not read those images."
-                else "${pages.size} page(s). Tap a page to hide the controls, long-press to compare."
+                else "${pages.size} page(s)" + (if (done > 0) ", $done already translated" else "") +
+                    ". Tap a page to hide the controls, long-press to compare."
             )
         } catch (e: CancellationException) {
             throw e
@@ -416,6 +427,8 @@ class ReaderActivity : AppCompatActivity() {
             loading = false
             progress.visibility = View.GONE
             Ui.enable(translateBtn, pages.isNotEmpty())
+            refreshCompare()
+            Ui.enable(saveBtn, anyTranslated())
         }
     }
 
@@ -452,6 +465,9 @@ class ReaderActivity : AppCompatActivity() {
         val info = Catalog.byKey(prefs.engineKey, l)
         val stamp = System.currentTimeMillis()
         val work = pages.toList()
+        val lm = recycler.layoutManager as LinearLayoutManager
+        val startPage = adapter.pageAt(lm.findFirstVisibleItemPosition()).coerceAtLeast(0)
+        val key = persistKey
         setBusy(true)
         translateJob = lifecycleScope.launch {
             try {
@@ -460,7 +476,13 @@ class ReaderActivity : AppCompatActivity() {
 
                 var boxes = 0
                 var pagesWithText = 0
-                for ((i, page) in work.withIndex()) {
+                var alreadyDone = 0
+                for (i in startPage until work.size) {
+                    val page = work[i]
+                    if (page.translated != null) {
+                        alreadyDone++
+                        continue
+                    }
                     val label = "Page ${i + 1}/${work.size}"
                     setStatus("$label: reading text…")
                     val bmp = withContext(Dispatchers.IO) { PageIO.decodeForOcr(page.file) } ?: continue
@@ -475,14 +497,24 @@ class ReaderActivity : AppCompatActivity() {
 
                         setStatus("$label: drawing…")
                         val out = withContext(Dispatchers.Default) { OverlayRenderer.render(bmp, bubbles, results) }
-                        val target = File(PageIO.translatedDir(applicationContext), "t${stamp}_$i.jpg")
+                        val target = if (key != null) {
+                            TranslationStore.fileFor(applicationContext, key, i, page.name)
+                        } else {
+                            File(PageIO.translatedDir(applicationContext), "t${stamp}_$i.jpg")
+                        }
                         withContext(Dispatchers.IO) {
                             target.parentFile?.mkdirs()
-                            FileOutputStream(target).use { out.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+                            val tmp = File(target.path + ".tmp")
+                            FileOutputStream(tmp).use { out.compress(Bitmap.CompressFormat.JPEG, 93, it) }
+                            if (!tmp.renameTo(target)) {
+                                tmp.copyTo(target, overwrite = true)
+                                tmp.delete()
+                            }
                         }
                         out.recycle()
 
-                        page.translated?.delete()
+                        val old = page.translated
+                        if (old != null && old != target) old.delete()
                         page.translated = target
                         boxes += bubbles.size
                         pagesWithText++
@@ -498,8 +530,9 @@ class ReaderActivity : AppCompatActivity() {
                     }
                 }
                 setStatus(
-                    if (pagesWithText == 0) "No ${l.name} text found. Check the text language."
-                    else "Done: $boxes text boxes on $pagesWithText page(s). Long-press a page to compare."
+                    if (pagesWithText == 0 && alreadyDone > 0) "Everything from page ${startPage + 1} down is already translated."
+                    else if (pagesWithText == 0) "No ${l.name} text found from page ${startPage + 1} down. Check the text language."
+                    else "Done: $boxes text boxes on $pagesWithText page(s), from page ${startPage + 1} down. Long-press a page to compare."
                 )
             } catch (e: CancellationException) {
                 setStatus("Stopped.")

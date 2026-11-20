@@ -14,6 +14,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.widget.PopupMenu
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -371,6 +372,18 @@ class LibraryActivity : AppCompatActivity() {
         showTitles()
     }
 
+    private fun confirmDeleteTranslation(ch: Chapter, key: String) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete translation?")
+            .setMessage("The translated pages of \"${ch.name}\" will be removed. Your original images are not touched.")
+            .setPositiveButton("Delete") { _, _ ->
+                TranslationStore.delete(this, key)
+                chapterAdapter.notifyDataSetChanged()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
     private fun read(title: Title, chapter: Chapter) {
         val tree = Uri.parse(prefs.rootUri ?: return)
         startActivity(ReaderActivity.forChapter(this, tree, title.docId, title.name, chapter.docId))
@@ -461,7 +474,13 @@ class LibraryActivity : AppCompatActivity() {
 
     private inner class ChapterAdapter : RecyclerView.Adapter<ChapterAdapter.H>() {
 
-        inner class H(val row: LinearLayout, val name: TextView, val tag: TextView) : RecyclerView.ViewHolder(row)
+        inner class H(
+            val row: LinearLayout,
+            val dot: View,
+            val name: TextView,
+            val tag: TextView,
+            val more: ImageButton,
+        ) : RecyclerView.ViewHolder(row)
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): H {
             val row = LinearLayout(this@LibraryActivity).apply {
@@ -471,14 +490,25 @@ class LibraryActivity : AppCompatActivity() {
                 background = Ui.ripple(Ui.rounded(Ui.color(this@LibraryActivity, R.color.surface), dp(14).toFloat()))
                 setPadding(dp(16), dp(16), dp(16), dp(16))
             }
+            val dot = View(this@LibraryActivity).apply {
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    shape = android.graphics.drawable.GradientDrawable.OVAL
+                    setColor(Ui.color(this@LibraryActivity, R.color.ok))
+                }
+                layoutParams = LinearLayout.LayoutParams(dp(10), dp(10)).apply { rightMargin = dp(12) }
+            }
             val name = Ui.text(this@LibraryActivity, "", 15f, R.color.on_bg, true).apply {
                 maxLines = 2
                 ellipsize = android.text.TextUtils.TruncateAt.END
             }
             val tag = Ui.text(this@LibraryActivity, "", 12f, R.color.on_muted)
+            val more = Ui.iconButton(this@LibraryActivity, R.drawable.ic_more, "More", Ui.color(this@LibraryActivity, R.color.on_muted)) {}
+            more.layoutParams = LinearLayout.LayoutParams(dp(40), dp(40)).apply { leftMargin = dp(4); rightMargin = -dp(8) }
+            row.addView(dot)
             row.addView(name, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             row.addView(tag)
-            return H(row, name, tag)
+            row.addView(more)
+            return H(row, dot, name, tag, more)
         }
 
         override fun getItemCount() = chapters.size
@@ -497,6 +527,20 @@ class LibraryActivity : AppCompatActivity() {
             h.tag.setTextColor(Ui.color(this@LibraryActivity, if (last) R.color.accent else R.color.on_muted))
             h.name.setTextColor(Ui.color(this@LibraryActivity, if (done && !last) R.color.on_muted else R.color.on_bg))
             h.row.setOnClickListener { read(title, ch) }
+
+            val key = TranslationStore.key(title.docId, ch.docId)
+            val translated = TranslationStore.has(this@LibraryActivity, key)
+            h.dot.visibility = if (translated) View.VISIBLE else View.GONE
+            h.more.visibility = if (translated) View.VISIBLE else View.GONE
+            h.more.setOnClickListener { anchor ->
+                val menu = PopupMenu(this@LibraryActivity, anchor)
+                menu.menu.add(0, 1, 0, "Delete translation")
+                menu.setOnMenuItemClickListener {
+                    confirmDeleteTranslation(ch, key)
+                    true
+                }
+                menu.show()
+            }
         }
     }
 }
