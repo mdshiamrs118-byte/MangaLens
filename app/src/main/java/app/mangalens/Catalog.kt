@@ -1,6 +1,6 @@
 package app.mangalens
 
-enum class EngineKind { MLKIT, ONNX, ONLINE }
+enum class EngineKind { MLKIT, ONNX, ONLINE, WEBAI }
 
 data class RemoteFile(val url: String, val relPath: String) {
     /** The file name as it is on Hugging Face, which is what a browser saves it as. */
@@ -89,6 +89,19 @@ object Catalog {
                 approxSize = "no download",
             )
         )
+        for (site in WebAi.sites) {
+            list.add(
+                EngineInfo(
+                    id = "web-${site.id}",
+                    key = "web-${site.id}",
+                    title = "${site.title} (web)",
+                    description = (if (site.loginNeeded) "Sign in once, then MangaLens types the text into the site in a hidden browser and reads the answer. " else "MangaLens types the text into the site in a hidden browser and reads the answer. ") +
+                        site.note + " Experimental: breaks when the site changes. Text goes to that site.",
+                    kind = EngineKind.WEBAI,
+                    approxSize = "no download",
+                )
+            )
+        }
         return list
     }
 

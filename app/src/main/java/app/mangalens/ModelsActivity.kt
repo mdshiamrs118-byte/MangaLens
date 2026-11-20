@@ -102,12 +102,18 @@ class ModelsActivity : AppCompatActivity() {
         EngineKind.MLKIT -> mlkitReady
         EngineKind.ONNX -> store.isDownloaded(info)
         EngineKind.ONLINE -> prefs.online().isComplete
+        EngineKind.WEBAI -> WebAi.byKey(info.key)?.let { !it.loginNeeded || prefs.webSigned(it.id) } ?: false
     }
 
     private fun statusOf(info: EngineInfo): String {
         progress[info.id]?.let { return it }
         return when (info.kind) {
             EngineKind.ONLINE -> if (isReady(info)) "Configured" else "Needs base URL, API key and model"
+            EngineKind.WEBAI -> when {
+                !isReady(info) -> "Not signed in"
+                WebAi.byKey(info.key)?.loginNeeded == true -> "Signed in"
+                else -> "No account needed"
+            }
             else -> if (isReady(info)) "Downloaded" else "Not downloaded"
         }
     }
@@ -173,7 +179,15 @@ class ModelsActivity : AppCompatActivity() {
                     prefs.engineKey = info.key
                     render()
                 })
-                if (info.kind != EngineKind.ONLINE) buttons.addView(button("Delete") { confirmDelete(info) })
+                if (info.kind == EngineKind.MLKIT || info.kind == EngineKind.ONNX) {
+                    buttons.addView(button("Delete") { confirmDelete(info) })
+                }
+                if (info.kind == EngineKind.WEBAI) {
+                    buttons.addView(button("Open site") { openSignIn(info) })
+                    if (WebAi.byKey(info.key)?.loginNeeded == true) buttons.addView(button("Sign out") { confirmSignOut(info) })
+                }
+            } else if (info.kind == EngineKind.WEBAI) {
+                buttons.addView(button("Sign in", true) { openSignIn(info) })
             } else if (info.kind == EngineKind.MLKIT) {
                 buttons.addView(button("Download", true) { startDownload(info) })
             } else if (info.kind == EngineKind.ONNX) {
@@ -302,6 +316,27 @@ class ModelsActivity : AppCompatActivity() {
                 render()
             }
         }
+    }
+
+    // ---- Web AI sign-in -----------------------------------------------------------------------
+
+    private fun openSignIn(info: EngineInfo) {
+        val site = WebAi.byKey(info.key) ?: return
+        startActivity(android.content.Intent(this, WebAiActivity::class.java).putExtra(WebAiActivity.EXTRA_SITE, site.id))
+    }
+
+    private fun confirmSignOut(info: EngineInfo) {
+        val site = WebAi.byKey(info.key) ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Sign out of ${site.title}?")
+            .setMessage("This clears the web logins MangaLens holds, for every web AI listed here. Other apps are not affected.")
+            .setPositiveButton("Sign out") { _, _ ->
+                WebAi.clearLogins()
+                for (s in WebAi.sites) prefs.setWebSigned(s.id, false)
+                render()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     // ---- Delete and online setup ------------------------------------------------------------

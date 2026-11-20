@@ -28,12 +28,18 @@ Portuguese, Indonesian, Vietnamese), translates it to English and draws the tran
 | NLLB-200 600M | offline | ~0.9 GB | Better quality, but large and slow. Needs a recent phone with 4 GB+ RAM. |
 | Online LLM | online | none | Any OpenAI-compatible `/chat/completions` API plus your own key. Best with context, tone and slang. The whole page is sent in one request. |
 
+| Web AI (ChatGPT, Gemini, Claude, DuckDuckGo AI Chat, Copilot, Perplexity) | online | none | No API key. Sign in once on the site inside the app (Translators > the site > Sign in); while translating, MangaLens types the page's text into the site in a hidden browser and reads the answer back. Experimental. |
+
 Offline model files are downloaded from Hugging Face (`Xenova/opus-mt-ko-en`, `Xenova/nllb-200-distilled-600M`)
 into the app's own storage and can be deleted again from the same screen. Keep the Translators screen open
 while a download runs; an interrupted download resumes where it stopped.
 
 The online engine sends the detected text to the provider you configure. The API key is stored in the app's
 private preferences on the phone.
+
+Web AI notes: it uses the site's own free limits and your own account, so it is slow (a page takes 10-60 s), can stop
+working whenever a site changes its layout or shows a human check (open the site from Translators to pass it), and may be
+against a site's terms. Google may refuse sign-in inside an app, which can block Gemini. Text goes to that site.
 
 ## Build with GitHub
 

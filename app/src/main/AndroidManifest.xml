@@ -32,6 +32,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".WebAiActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".ModelsActivity"
             android:exported="false"
             android:label="Translators" />

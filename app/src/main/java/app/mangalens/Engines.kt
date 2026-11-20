@@ -20,6 +20,14 @@ object Engines {
             return OnlineLlmTranslator(cfg, lang.name)
         }
 
+        if (info.kind == EngineKind.WEBAI) {
+            val site = WebAi.byKey(info.key) ?: error("Unknown web translator")
+            check(!site.loginNeeded || Prefs(app).webSigned(site.id)) {
+                "Open Translators > ${site.title} > Sign in first."
+            }
+            return WebAiTranslator(site, lang.name)
+        }
+
         // ML Kit models are per language; the ONNX engines only need their NLLB source token switched.
         val key = if (info.kind == EngineKind.MLKIT) "${info.id}:${lang.code}" else info.id
         return mutex.withLock {
@@ -45,7 +53,7 @@ object Engines {
                         }
                     }
                 }
-                EngineKind.ONLINE -> error("unreachable")
+                EngineKind.ONLINE, EngineKind.WEBAI -> error("unreachable")
             }
             cached = t
             cachedKey = key

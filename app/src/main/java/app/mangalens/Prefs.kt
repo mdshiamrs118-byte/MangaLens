@@ -47,5 +47,9 @@ class Prefs(context: Context) {
 
     fun lastChapter(titleDoc: String): String? = sp.getString("last_$titleDoc", null)
 
+    fun webSigned(siteId: String): Boolean = sp.getBoolean("web_$siteId", false)
+
+    fun setWebSigned(siteId: String, v: Boolean) = sp.edit().putBoolean("web_$siteId", v).apply()
+
     fun online() = OnlineConfig(apiBase.trim(), apiKey.trim(), apiModel.trim())
 }

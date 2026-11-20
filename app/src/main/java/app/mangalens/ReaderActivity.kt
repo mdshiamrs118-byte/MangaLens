@@ -98,6 +98,7 @@ class ReaderActivity : AppCompatActivity() {
     private var loading = false
     private var chromeVisible = true
     private var lastWidth = 0
+    private var readerRoot: FrameLayout? = null
 
     private var loadJob: Job? = null
     private var translateJob: Job? = null
@@ -117,7 +118,10 @@ class ReaderActivity : AppCompatActivity() {
                 WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
         }
 
-        setContentView(buildUi())
+        val content = buildUi()
+        readerRoot = content as? FrameLayout
+        WebAiHost.container = readerRoot
+        setContentView(content)
         refreshChips()
         start()
     }
@@ -128,6 +132,7 @@ class ReaderActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        if (WebAiHost.container === readerRoot) WebAiHost.container = null
         super.onDestroy()
         ocr.close()
         loader.close()
